@@ -5,8 +5,8 @@ update as_queue
       status=%s,
       target_status=%s,
       retry=%s,
-      creation=%s,
+      creation=str_to_date(%s, '%Y-%m-%dT%TZ'),
       last_change=now(),
-      check_ts=%s,
-      action_info=%s,
+      check_ts=str_to_date(%s, '%Y-%m-%dT%TZ'),
+      action_info=%s
   where task_id=%s;

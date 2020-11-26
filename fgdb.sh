@@ -61,9 +61,10 @@ prepare_sql() {
   cat $QUERY_FILE  > $PREPARE_QUERY
   # Loop over remaining arguments for query parameters
   for var in "$@"; do
+    var=$(echo $var | sed s/\\//\\\\\\\\\\//g)
     is_number $var &&\
       sed -i'' "0,/%s/s//$var/" $PREPARE_QUERY ||\
-      sed -i'' "0,/%s/s//\'$var\'/" $PREPARE_QUERY
+      eval "sed -i'' \"0,/%s/s//\'$var\'/\" $PREPARE_QUERY"
   done
   [ -f $QUERY_VAR ] &&\
     eval "cp $PREPARE_QUERY $QUERY_VAR" ||\

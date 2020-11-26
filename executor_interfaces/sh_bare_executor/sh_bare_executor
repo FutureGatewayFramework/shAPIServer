@@ -30,6 +30,17 @@ check_compatibility
 # Queue task_id
 task_id=$1
 
+# Interruption  handlers
+int_handler() {
+  log INFO "User interruption detected"
+}
+exit_handler() {
+  log INFO "Terminating bare execution on task_id: $task_id"
+  update_queue_record $task_id
+  cleanup_temp
+}
+trap exit_handler EXIT
+
 #
 # Functions
 #
@@ -95,7 +106,7 @@ update_queue_record() {
               $creation\
               $check_ts\
               $action_info\
-              $task_id 
+              $TID 
   exec_sql $QUERY > $QRES_UPDATEQREC
   [ $? -ne 0 ] &&\
     log ERROR "Unable to update queue record for task_id: '"${TID}"': '"$(cat $QRES_UPDATEQREC)"'" &&\
@@ -211,3 +222,4 @@ case $action in
   exit 1
   ;;
 esac
+

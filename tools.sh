@@ -130,8 +130,11 @@ check_compatibility() {
 
 # Check if a givent variable is a number and anreturn 0 in such a case 
 is_number() {
-  [ -n "$1" -a\
-    "$1" -eq "$1" ] 2>/dev/null
+  [ "$1" = "NULL" -o "$1" = "null" ] &&\
+    return 0
+  [ -n "$1" -a "$1" -eq "$1" ] 2>/dev/null &&\
+    return 0
+  return 1
 }
 
 

@@ -24,8 +24,7 @@ check_compatibility
 # APIServer configurations, see shAPIerver.conf
 . config.sh
 
-
-# Handles interruption 
+# Interruption  handlers
 int_handler() {
   log INFO "User interruption detected"
   [ -f $LOCK_FILE ] &&\
