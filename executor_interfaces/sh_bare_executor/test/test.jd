@@ -1,0 +1,5 @@
+executable=/bin/bash
+arguments=test.sh arg1 arg2 arg3
+stdout=output.txt
+stderr=error.txt
+output_files=test_output.txt

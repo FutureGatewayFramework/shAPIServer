@@ -3,6 +3,10 @@
 # logging functions for Bash scripts
 #
 
+#
+# Functions
+#
+
 # Compatibility for date and stat commands in MacOS can be only ensured by
 # homebrew package: 'coreutils'
 LOG_HOSTOS=$(uname)
@@ -65,7 +69,7 @@ log() {
   # get message to log
   [ $REQ_LEVEL -gt $CFG_LEVEL ] && return
   shift 1
-  MESSAGE=$@
+  MESSAGE=$(echo -e "$@")
   # take care of format
   FMT_MSG=""
   for ((i=0; i< ${#LOG_FORMAT[@]}; i++)); do
@@ -91,4 +95,6 @@ log() {
   return 0
 }
 
-
+# Initialization, uses script argument to overload log file name
+[ "$1" != "" ] &&\
+  LOG_OUTPUT[0]=$1

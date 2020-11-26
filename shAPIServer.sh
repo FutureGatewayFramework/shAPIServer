@@ -3,9 +3,10 @@
 # Bash implementation of the API server
 #
 
+LOG_FILE=shAPIServer.log
+
 # logging import and customisation
-. logging.sh
-LOG_OUTPUT[0]=shAPIServer.log
+. logging.sh $LOG_FILE
 
 # tools functions
 . tools.sh
@@ -40,6 +41,7 @@ trap exit_handler EXIT
 
 # Starting-up
 log INFO "Starting shAPIServer daemon, lock file in '"$LOCK_FILE"'"
+log INFO "Log file in '"$LOG_FILE"'"
 
 
 #

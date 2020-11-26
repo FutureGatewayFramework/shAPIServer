@@ -6,13 +6,9 @@
 # load configuration settings
 . shAPIServer.conf
 
-# List of used configuration variables
-SHASD_CONFIG=(
-  LOCK_FILE
-  MAX_ACTIVE_TASKS
-  POLLING_TIMEOUT
-  INSTANCE_UUID_FILE
-)
+#
+# Functions
+#
 
 # Instance UUID is calculated using uuid() mysql function, it is generated 
 # only once and stored into file specified by config value INSTANCE_UUID_FILE
@@ -235,3 +231,15 @@ register_and_check_config() {
   fi
   rm_temp QRES_SRVBYUUID
 }
+
+#
+# Initializations
+#
+
+# List of used configuration variables
+SHASD_CONFIG=(
+  LOCK_FILE
+  MAX_ACTIVE_TASKS
+  POLLING_TIMEOUT
+  INSTANCE_UUID_FILE
+)

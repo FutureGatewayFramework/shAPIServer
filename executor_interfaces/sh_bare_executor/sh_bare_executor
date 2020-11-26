@@ -1,0 +1,213 @@
+#!/bin/bash
+#
+# Shell based bare_executor
+#
+# Bare executor is the simplest kind of executors for APIServers. This kind of
+# executor interface just execute received commands in APIServer space and
+# jobs are directly executed in 'target_info' directory.
+
+LOG_FILE=sh_bare_executor.log
+
+# logging import and customisation
+. logging.sh $LOG_FILE
+
+# tools functions
+. tools.sh
+
+# Check for compatibility issues before start the server is also may produce
+# several aliases used by next includes (do not move this line)
+check_compatibility
+
+# database functions
+. fgdb.sh
+
+# tasks functions
+. tasks.sh
+
+# APIServer configurations, see shAPIerver.conf
+. config.sh
+
+# Queue task_id
+task_id=$1
+
+#
+# Functions
+#
+
+# Get queue record fields
+get_queue_record() {
+  TID=$1
+  get_temp QUERY QRES_SETSTATUS
+  prepare_sql $QUERY\
+              queries/get_queue_record.sql\
+              $TID
+  exec_sql $QUERY > $QRES_SETSTATUS
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to get queue record for task_id: '"${TID}"': '"$(cat $QRES_SETSTATUS)"'" &&\
+    rm_temp QRES_SETSTATUS &&\
+    exit 1
+  # Retrieve queue record values
+  task_id=$TID
+  target_id=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $2 }')
+  target=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $3 }')
+  action=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $4 }')
+  status=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $5 }')
+  target_status=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $6 }')
+  retry=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $7 }')
+  creation=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $8 }')
+  last_change=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $9 }')
+  check_ts=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $10 }')
+  action_info=$(cat $QRES_SETSTATUS | awk -F'\t' '{ print $11 }')
+  rm_temp QUERY QRES_SETSTATUS
+  log DEBUG Queue record:
+  QFIELDS=(
+    "task_id"\
+    "target_id"\
+    "target"\
+    "action"\
+    "status"\
+    "target_status"\
+    "retry"\
+    "creation"\
+    "creation"\
+    "last_change"\
+    "check_ts"\
+    "action_info"\
+  )
+  for qf in ${QFIELDS[@]}; do
+    eval "QVALUE=\$$qf"
+    log DEBUG "\t${qf}=$(echo $QVALUE)"
+  done
+}
+
+# Update queue record fields
+update_queue_record() {
+  TID=$1
+  get_temp QUERY QRES_UPDATEQREC
+  prepare_sql $QUERY\
+              queries/update_queue_record.sql\
+              $target_id\
+              $target\
+              $action\
+              $status\
+              $target_status\
+              $retry\
+              $creation\
+              $check_ts\
+              $action_info\
+              $task_id 
+  exec_sql $QUERY > $QRES_UPDATEQREC
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to update queue record for task_id: '"${TID}"': '"$(cat $QRES_UPDATEQREC)"'" &&\
+    rm_temp QRES_UPDATEQREC &&\
+    echo exit 1
+  rm_temp QUERY QRES_UPDATEQREC
+}
+
+#
+# SH Bare Executor Interface code
+#
+
+# Check parameters
+
+# Task id
+[ "${task_id}" = "" ] &&\
+  log ERROR "Received bare executor call without task_id" &&\
+  exit 1
+
+# Retrieve queue record elements
+get_queue_record $task_id
+
+# Action
+[ "${action}" = "" ] &&\
+  status="ABORTED" &&\
+  log ERROR "No action specified for task id: '"$task_id"'" &&\
+  exit 1
+
+# Target info
+[ "${action_info}" = "" ] &&\
+  task_id="ABORTED" &&\
+  log ERROR "No target info specified for task id: '"$task_id"' with action: '"$action"'" &&\
+  exit 1
+[ ! -d $action_info ] &&\
+  status="ABORTED" &&\
+  log ERROR "No target info directory available for task id: '"$task_id"' with action: '"$action"'" &&\
+  exit 1
+
+# Job description
+[ $action = "SUBMIT" -a\
+  "${job_desc}" = "" ] &&\
+  status="ABORTED" &&\
+  log ERROR "No job description specified for task id: '"$task_id"' with action: '"$action"'" &&\
+  exit 1
+[ $action = "SUBMIT" -a\
+  ! -f $action_info"/"$job_desc ] &&\
+  status="ABORTED" &&\
+  log ERROR "No job description available for task id: '"$task_id"' with action: '"$action"'" &&\
+  exit 1
+
+# break
+echo "STOP"
+exit 0
+
+# Retrieve queue record
+get_queue_record $task_id
+case $action in
+  "SUBMIT")
+  cd $action_info
+  # Extract action
+  SHBE_EXECUTABLE=$(cat $action_info"/"$job_desc |\
+                    grep -i "^executable" |\
+                    awk -F'=' '{ print $2 }' |\
+                    xargs echo)
+  SHBE_ARGUMENTS=$(cat $action_info"/"$job_desc |\
+                    grep -i "^arguments" |\
+                    awk -F'=' '{ print $2 }' |\
+                    xargs echo)
+  SHBE_STDOUT=$(cat $action_info"/"$job_desc |\
+                    grep -i "^output" |\
+                    awk -F'=' '{ print $2 }' |\
+                    xargs echo)
+  SHBE_STDERR=$(cat $action_info"/"$job_desc |\
+                    grep -i "^error" |\
+                    awk -F'=' '{ print $2 }' |\
+                    xargs echo)
+  # Output files are in the form (f1, f2, ... fn)
+  SHBE_OUTFILES_VAL=$(cat $action_info"/"$job_desc |\
+                    grep -i "^output_files" |\
+                    awk -F'=' '{ print $2 }' |\
+                    xargs echo)
+  eval SHBE_OUTFILES"="$SHBE_OUTFILES_VAL
+  log DEBUG "Job description"
+  log DEBUG "\texecutable=$SHBE_EXECUTABLE"
+  log DEBUG "\targuments=$SHBE_ARGUMENTS"
+  log DEBUG "\toutput=$SHBE_STDOUT"
+  log DEBUG "\terror=$SHBE_STDERR"
+  log DEBUG "\toutput_files=$SHBE_OUTFILES_VAL"
+  # Execute the requested job
+  $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
+  status="RUNNING"
+  target_status="RUNNING"
+  SHBE_PID=$!
+  target_id=$task_id $SHBE_PID
+  update_queue_record $task_id
+  wait $SHBE_PID
+  SHBE_RET=$?
+  [ $SHBE_RET -eq 0 ] &&\
+    status="DONE" &&\
+    target_status="DONE" ||\
+    (status="ABORTED" &&\
+    target_status="ABORTED";)
+  update_queue_record $task_id
+  cd - >/dev/null
+  ;;
+  "STATUS")
+  log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
+  ;;
+  "KILL"
+  ;;
+  *)
+  log ERROR "Unknown action: '"$action"' for task_id: '"$task_id"'"
+  exit 1
+  ;;
+esac
