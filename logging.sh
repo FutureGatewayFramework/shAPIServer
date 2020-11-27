@@ -7,21 +7,11 @@
 # Functions
 #
 
-# Compatibility for date and stat commands in MacOS can be only ensured by
-# homebrew package: 'coreutils'
-LOG_HOSTOS=$(uname)
-if [ "$LOG_HOSTOS" = "Darwin" ]; then
-  LOG_STAT=gstat &&\
-  LOG_DATE=gdate
-else
-  LOG_STAT="stat"
-  LOG_DATE=date
-fi
-
 # logging conifiguration
-
 LOG_FORMAT=(
-  "$LOG_DATE +%Y%m%d%H%M%S.%4N"
+  "date +%Y%m%d%H%M%S.%4N"
+  "printf \" \""
+  "line_num"
   "printf \": \""
   "printf \"\$LEVEL \""
 )
@@ -41,6 +31,22 @@ LOG_OUTPUT=(
     "${LOG_FILE}"
     ""
 )
+
+# Get bash script line numbers
+line_num(){
+  [ "$1" = "" ] &&\
+    LNNUM_MAXJ=${#BASH_LINENO[@]} &&\
+    LNNUM_MAXJ=$((LNNUM_MAXJ-1)) ||\
+    LNNUM_MAXJ=$1
+  j=0
+  for ((i=${#BASH_LINENO[@]}-1;i>=0;i--)); do
+    [ $j -lt $LNNUM_MAXJ ] &&\
+      printf '[%s:%s]' "${FUNCNAME[i]}" "${BASH_LINENO[i]}" &&\
+      j=$((j+1)) ||\
+      break
+  done
+  #printf "($LINENO)"
+ }
 
 # log function
 #
@@ -86,9 +92,9 @@ log() {
       echo "$LOG_ENTRY"
     if [ -f "$LOG_FILE" ]; then
       # Take care of rotating log file
-      LOG_SIZE=$($LOG_STAT  --format="%s" $LOG_FILE)
+      LOG_SIZE=$(stat --format="%s" $LOG_FILE)
       [ $LOG_SIZE -gt $LOG_ROTATE_SIZE ] &&\
-        cp $LOG_FILE $($LOG_DATE +%Y%m%d%H%M%S)_${LOG_FILE} &&\
+        cp $LOG_FILE $(date +%Y%m%d%H%M%S)_${LOG_FILE} &&\
         echo "" > $LOG_FILE
     fi
   done

@@ -6,13 +6,12 @@
 # executor interface just execute received commands in APIServer space and
 # jobs are directly executed in 'target_info' directory.
 
-LOG_FILE=sh_bare_executor.log
-
-# logging import and customisation
-. logging.sh $LOG_FILE
-
 # tools functions
 . tools.sh
+
+# logging import and customisation
+LOG_FILE=sh_bare_executor.log
+. logging.sh $LOG_FILE
 
 # Check for compatibility issues before start the server is also may produce
 # several aliases used by next includes (do not move this line)
@@ -30,16 +29,29 @@ check_compatibility
 # Queue task_id
 task_id=$1
 
-# Interruption  handlers
+#
+# Handlers
+#
+
+# Interruption; <ctrl-c>
 int_handler() {
   log INFO "User interruption detected"
 }
+
+# Exit 
 exit_handler() {
   log INFO "Terminating bare execution on task_id: $task_id"
   update_queue_record $task_id
   cleanup_temp
 }
 trap exit_handler EXIT
+
+# Error
+error_handler() {
+  log ERROR "Script error occurred"
+  exit 1
+}
+trap error_handler ERR
 
 #
 # Functions
@@ -145,7 +157,7 @@ get_queue_record $task_id
   log ERROR "No target info directory available for task id: '"$task_id"' with action: '"$action"'" &&\
   exit 1
 
-# Job description
+# Job description parameter and file presence
 [ $action = "SUBMIT" -a\
   "${job_desc}" = "" ] &&\
   status="ABORTED" &&\
@@ -157,9 +169,6 @@ get_queue_record $task_id
   log ERROR "No job description available for task id: '"$task_id"' with action: '"$action"'" &&\
   exit 1
 
-# break
-echo "STOP"
-exit 0
 
 # Retrieve queue record
 get_queue_record $task_id

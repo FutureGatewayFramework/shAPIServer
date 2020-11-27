@@ -5,11 +5,11 @@
 
 LOG_FILE=shAPIServer.log
 
-# logging import and customisation
-. logging.sh $LOG_FILE
-
 # tools functions
 . tools.sh
+
+# logging import and customisation
+. logging.sh $LOG_FILE
 
 # Check for compatibility issues before start the server is also may produce
 # several aliases used by next includes (do not move this line)
@@ -35,8 +35,13 @@ exit_handler() {
   log INFO "API Server daemon terminated"
   cleanup_temp
 }
+error_handler() {
+  log ERROR "Script error occurred"
+  exit 1
+}
 trap int_handler INT
 trap exit_handler EXIT
+trap error_handler ERR
 
 # Starting-up
 log INFO "Starting shAPIServer daemon, lock file in '"$LOCK_FILE"'"
