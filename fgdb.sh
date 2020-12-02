@@ -77,7 +77,7 @@ prepare_sql() {
 #
 
 # FutureGateway DB conneciton variables
-FGDB_HOST=127.0.0.1
+FGDB_HOST=fgdb
 FGDB_PORT=3306
 FGDB_USER=fgapiserver
 FGDB_PASS=fgapiserver_password

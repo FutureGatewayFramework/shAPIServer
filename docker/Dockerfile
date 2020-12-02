@@ -23,9 +23,6 @@ ENV FG_USER=futuregateway\
 RUN adduser --disabled-password --gecos "" $FG_USER &&\
     chown -R $FG_USER:$FG_USERS $FG_DIR &&\
     echo "$FG_USER:$FG_USERPWD" | /usr/sbin/chpasswd &&\
-    adduser --disabled-password --gecos "" $FG_TEST &&\
-    chown -R $FG_TEST:$FG_TEST $FG_TESTDIR &&\
-    echo "$FG_TEST:$FG_TESTPWD" | /usr/sbin/chpasswd &&\
     apt-get update &&\
     apt-get install\
     -y\
@@ -37,12 +34,13 @@ RUN adduser --disabled-password --gecos "" $FG_USER &&\
     mlocate\
     vim\
     #openssh-server\
+    jq\
     locales &&\
     sudo echo "$FG_USER ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers &&\
     apt-get clean &&\
     rm -rf /var/lib/apt/lists/* &&\
     locale-gen en_US.UTF-8 &&\
-    sed -i "s/.*PasswordAuthentication.*/PasswordAuthentication yes/g" /etc/ssh/sshd_config &&\
+    #sed -i "s/.*PasswordAuthentication.*/PasswordAuthentication yes/g" /etc/ssh/sshd_config &&\
     echo "for f in \$(find $FG_DIR/.fgprofile -type f); do source \$f; done # FGLOADENV" >> /etc/profile.d/fg_profile.sh
 
 # User and working directory
@@ -77,5 +75,15 @@ RUN git clone $FGSETUP_GIT -b $FGSETUP_BRANCH &&\
 #RUN  mkdir -p /var/run/sshd
 #ENTRYPOINT [ "/usr/sbin/sshd", "-D" ]
 
+
+
+
 # Start daemon
-ENTRYPOINT [ "/bin/bash", "--login", "shAPIServer.sh" ] 
+WORKDIR $FG_DIR/shApiserver
+#RUN echo "#!/bin/bash" > .loop.sh &&\
+#    echo "while [ 1 ]; do" >> .loop.sh &&\
+#    echo "  sleep 3600" >> .loop.sh &&\
+#    echo "done" >> .loop.sh &&\
+#    chmod +x .loop.sh
+#ENTRYPOINT [ "./.loop.sh" ] 
+ENTRYPOINT [ "./shAPIServer.sh" ]
