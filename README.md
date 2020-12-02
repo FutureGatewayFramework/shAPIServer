@@ -16,5 +16,22 @@ docker run -d --name fgapiserver -p 8080:80 -p 8443:443 -p 18888:8888 -p 18889:8
 
 **Warning** Docker images [futuregateway/fgapiserver:0.2][dkfgapiserver2] and [futuregateway/fgapiserver:0.3][dkfgapiserver3] (currenltly latest) by default has **PTV** authorization option switched on, set to `False` the corresponding configuration option `fgapisrv_lnkptvflag` to enable UGR.
 
+## shAPIServer container
+
+Under the directory `docker` there are files to generate the shAPIServer container.
+To create the shAPIServer docker image, just execute the command:
+
+```bash
+make image
+```
+
+To instantiate the server into a test FutureGateway instance, just execute:
+
+```bash
+docker run -d --name shapiserver --link fgsb_shAPIServer:fgdb -v $(pwd)/../fgiosandbox:/home/futuregateway/fgiosandbox futuregateway/shapiserver
+```
+
+**Warning** The command above assumes the docker command is executed from `docker` directory.
+
 [dkfgapiserver2]: https://hub.docker.com/layers/futuregateway/fgapiserver/0.3/images/sha256-42df212e875de8f3ee8056ed52be32b1668057effc16073ab138a3343f9838b5?context=explore
 [dkfgapiserver3]: https://hub.docker.com/layers/futuregateway/fgapiserver/0.2/images/sha256-a30b934478cb35cc088816653a3d12bf62be6b85a324f23786e6cf17c806d7c3?context=explore
