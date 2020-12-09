@@ -92,7 +92,6 @@ get_queue_record() {
     "target_status"\
     "retry"\
     "creation"\
-    "creation"\
     "last_change"\
     "check_ts"\
     "action_info"\
@@ -105,6 +104,7 @@ get_queue_record() {
 
 # Update queue record fields
 update_queue_record() {
+  log debug "PWD: $PWD"
   TID=$1
   get_temp QUERY QRES_UPDATEQREC
   prepare_sql $QUERY\
@@ -152,48 +152,54 @@ get_queue_record $task_id
   task_id="ABORTED" &&\
   log ERROR "No target info specified for task id: '"$task_id"' with action: '"$action"'" &&\
   exit 1
-[ ! -d $action_info ] &&\
+action_info_path=${IOSANDBOX_DIR}/$(basename ${action_info})
+log debug "Action info: $action_info_path"
+[ ! -d $action_info_path ] &&\
   status="ABORTED" &&\
-  log ERROR "No target info directory available for task id: '"$task_id"' with action: '"$action"'" &&\
+  log ERROR "No target info directory: '"$action_info_path"' available for task id: '"$task_id"' with action: '"$action"'" &&\
   exit 1
-
-# Job description parameter and file presence
-[ $action = "SUBMIT" -a\
-  "${job_desc}" = "" ] &&\
-  status="ABORTED" &&\
-  log ERROR "No job description specified for task id: '"$task_id"' with action: '"$action"'" &&\
-  exit 1
-[ $action = "SUBMIT" -a\
-  ! -f $action_info"/"$job_desc ] &&\
-  status="ABORTED" &&\
-  log ERROR "No job description available for task id: '"$task_id"' with action: '"$action"'" &&\
-  exit 1
-
 
 # Retrieve queue record
 get_queue_record $task_id
 case $action in
   "SUBMIT")
-  cd $action_info
+  # SUBMIT json file
+  SUBMIT_JSON=${action_info_path}/${task_id}.json
+  # Job description parameter and file presence
+  job_desc=$(cat $SUBMIT_JSON |\
+             jq '.application.parameters[]|select(.param_name=="jobdesc")' |\
+             jq -r .param_value)
+  [ "${job_desc}" = "" ] &&\
+    status="ABORTED" &&\
+    log ERROR "No job description specified for task id: '"$task_id"' with action: '"$action"'" &&\
+    exit 1
+  [ ! -f $action_info_path"/"$job_desc ] &&\
+    status="ABORTED" &&\
+    log ERROR "No job description: '"$action_info_path"/"$job_desc"' available for task id: '"$task_id"' with action: '"$action"'" &&\
+    exit 1
+  # Go to the action_info_path
+  cd $action_info_path
+  BARE_EXE_INFO=$action_info_path/.sh_bare_executor
+  touch $BARE_EXE_INFO
   # Extract action
-  SHBE_EXECUTABLE=$(cat $action_info"/"$job_desc |\
+  SHBE_EXECUTABLE=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^executable" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
-  SHBE_ARGUMENTS=$(cat $action_info"/"$job_desc |\
+  SHBE_ARGUMENTS=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^arguments" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
-  SHBE_STDOUT=$(cat $action_info"/"$job_desc |\
-                    grep -i "^output" |\
+  SHBE_STDOUT=$(cat $action_info_path"/"$job_desc |\
+                    grep -i "^stdout" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
-  SHBE_STDERR=$(cat $action_info"/"$job_desc |\
-                    grep -i "^error" |\
+  SHBE_STDERR=$(cat $action_info_path"/"$job_desc |\
+                    grep -i "^stderr" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
   # Output files are in the form (f1, f2, ... fn)
-  SHBE_OUTFILES_VAL=$(cat $action_info"/"$job_desc |\
+  SHBE_OUTFILES_VAL=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^output_files" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
@@ -205,26 +211,31 @@ case $action in
   log DEBUG "\terror=$SHBE_STDERR"
   log DEBUG "\toutput_files=$SHBE_OUTFILES_VAL"
   # Execute the requested job
+  log DEBUG "Executing: $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT"
+  echo "start_ts="$(ts) >> $BARE_EXE_INFO
   $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
   status="RUNNING"
   target_status="RUNNING"
   SHBE_PID=$!
-  target_id=$task_id $SHBE_PID
-  update_queue_record $task_id
-  wait $SHBE_PID
-  SHBE_RET=$?
-  [ $SHBE_RET -eq 0 ] &&\
-    status="DONE" &&\
-    target_status="DONE" ||\
-    (status="ABORTED" &&\
-    target_status="ABORTED";)
-  update_queue_record $task_id
+  target_id=$SHBE_PID
   cd - >/dev/null
+  update_queue_record $task_id
+  log DEBUG "Waiting for execution completion"
+  wait $SHBE_PID
+  echo "end_ts="$(ts) >> $BARE_EXE_INFO
+  SHBE_RET=$?
+  echo "return_code=${SHBE_RET}" >> $BARE_EXE_INFO
+  #[ $SHBE_RET -eq 0 ] &&\
+  #  status="DONE" &&\
+  #  target_status="DONE" ||\
+  #  (status="ABORTED" &&\
+  #  target_status="ABORTED";)
+  #update_queue_record $task_id
   ;;
   "STATUS")
   log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
   ;;
-  "KILL"
+  "KILL")
   ;;
   *)
   log ERROR "Unknown action: '"$action"' for task_id: '"$task_id"'"

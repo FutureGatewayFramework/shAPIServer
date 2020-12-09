@@ -137,6 +137,10 @@ is_number() {
   return 1
 }
 
+# Print a timestamp
+ts() {
+  printf $(date +%Y%m%d%H%M%S.%4N)
+}
 
 #
 # Initializations
