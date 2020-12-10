@@ -35,8 +35,11 @@ task_id=$1
 
 # Interruption; <ctrl-c>
 int_handler() {
-  log INFO "User interruption detected"
+  log WARN "User interruption detected"
+  status="ABORTED"
+  target_status="INTERRUPTED"
 }
+trap int_handler INT KILL
 
 # Exit 
 exit_handler() {
@@ -49,6 +52,8 @@ trap exit_handler EXIT
 # Error
 error_handler() {
   log ERROR "Script error occurred"
+  status="ABORTED"
+  target_status="ERRORED"
   exit 1
 }
 trap error_handler ERR
@@ -100,11 +105,38 @@ get_queue_record() {
     eval "QVALUE=\$$qf"
     log DEBUG "\t${qf}=$(echo $QVALUE)"
   done
+  QRECSUM=$(checksum_queue_record)
+  PREV_QRECSUM=$QRECSUM
+  log DEBUG  "Queue record checksum: $QRECSUM"
+}
+
+# Calculate queue record value checksum
+checksum_queue_record() {
+  get_temp CHKQREC
+  for qf in ${QFIELDS[@]}; do
+    eval "QVALUE=\$$qf"
+    echo "${qf}=$(echo $QVALUE)" >>$CHKQREC
+  done
+  QRECSUM=$(cat $CHKQREC | md5sum | awk '{ print $1 }' | xargs echo)
+  echo $QRECSUM
+}
+
+# Determine if queue record has changed
+check_queue_record() {
+  QRECSUM=$(checksum_queue_record)
+  [ "$QRECSUM" = "$PREV_QRECSUM" ] &&\
+    return 0
+  PREV_QRECSUM=$QRECSUM
+  return 1
 }
 
 # Update queue record fields
 update_queue_record() {
-  log debug "PWD: $PWD"
+  CHKQREC=$()
+  [ $check_queue_record ] &&\
+    log DEBUG "No queue record changes detected" &&\
+    return
+  log DEBUG "Queue record changes detected, updating db" &&\
   TID=$1
   get_temp QUERY QRES_UPDATEQREC
   prepare_sql $QUERY\
@@ -160,7 +192,6 @@ log debug "Action info: $action_info_path"
   exit 1
 
 # Retrieve queue record
-get_queue_record $task_id
 case $action in
   "SUBMIT")
   # SUBMIT json file
@@ -177,8 +208,9 @@ case $action in
     status="ABORTED" &&\
     log ERROR "No job description: '"$action_info_path"/"$job_desc"' available for task id: '"$task_id"' with action: '"$action"'" &&\
     exit 1
+  # Task arguments
+  TASK_ARGS=($(cat $SUBMIT_JSON | jq .arguments[]; ))
   # Go to the action_info_path
-  cd $action_info_path
   BARE_EXE_INFO=$action_info_path/.sh_bare_executor
   touch $BARE_EXE_INFO
   # Extract action
@@ -189,7 +221,7 @@ case $action in
   SHBE_ARGUMENTS=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^arguments" |\
                     awk -F'=' '{ print $2 }' |\
-                    xargs echo)
+                    xargs echo)" "${TASK_ARGS[@]}
   SHBE_STDOUT=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^stdout" |\
                     awk -F'=' '{ print $2 }' |\
@@ -213,24 +245,25 @@ case $action in
   # Execute the requested job
   log DEBUG "Executing: $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT"
   echo "start_ts="$(ts) >> $BARE_EXE_INFO
+  cd $action_info_path
   $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
+  cd - >/dev/null
   status="RUNNING"
   target_status="RUNNING"
   SHBE_PID=$!
   target_id=$SHBE_PID
-  cd - >/dev/null
+  echo "task_id=${SHBE_PID}" >> $BARE_EXE_INFO
   update_queue_record $task_id
   log DEBUG "Waiting for execution completion"
   wait $SHBE_PID
   echo "end_ts="$(ts) >> $BARE_EXE_INFO
   SHBE_RET=$?
   echo "return_code=${SHBE_RET}" >> $BARE_EXE_INFO
-  #[ $SHBE_RET -eq 0 ] &&\
-  #  status="DONE" &&\
-  #  target_status="DONE" ||\
-  #  (status="ABORTED" &&\
-  #  target_status="ABORTED";)
-  #update_queue_record $task_id
+  [ $SHBE_RET -eq 0 ] &&\
+    status="DONE" &&\
+    target_status="DONE" ||\
+    (status="ABORTED" &&\
+    target_status="ABORTED";)
   ;;
   "STATUS")
   log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
