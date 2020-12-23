@@ -32,7 +32,7 @@ rm_temp() {
       return 1
     for var in ${VARS[@]}; do
       ITH_VAR=""
-      for ((i=0; i<${#TMP_VARS[@]}; i++)); do
+      for ((i=${#TMP_VARS[@]}-1; i>=0; i--)); do
         if [ "${TMP_VARS[i]}" = "$var" ]; then
           ITH_VAR=$i
           break
@@ -41,8 +41,9 @@ rm_temp() {
       if [ "$ITH_VAR" != "" ]; then
         ITH_TMP_VAR=${TMP_VARS[$ITH_VAR]}
         ITH_TMP_FILE=${TMP_FILES[$ITH_VAR]}
-        TMP_FILES=(${TMP_FILES[@]/"$ITH_TMP_FILE"})
-        TMP_VARS=(${TMP_VARS[@]/"$ITH_TMP_VAR"})
+        TMP_FILES=(${TMP_FILES[@]:0:$ITH_VAR} ${TMP_FILES[@]:$((ITH_VAR+1))}) 
+        TMP_VARS=(${TMP_VARS[@]:0:$ITH_VAR} ${TMP_VARS[@]:$((ITH_VAR+1))}) 
+        [ -f $ITH_TMP_FILE ] && rm -f $ITH_TMP_FILE
         CMD="$ITH_TMP_VAR='' && unset $ITH_TMP_VAR"
         eval $CMD
       else
@@ -73,14 +74,15 @@ list_temp() {
 
 # Remove all registered temporary files
 cleanup_temp() {
-  if [ ${#TMP_FILES[@]} -ne 0 ]; then
+  if [ ${#TMP_FILES[@]} -gt 0 ]; then
     log DEBUG Removing ${#TMP_FILES[@]} registered temporary files ...
-    for tmp in  ${TMP_FILES[@]}; do
+    for ((ith_tmp=0; ith_tmp<${#TMP_FILES[@]}; ith_tmp++)); do
+      tmp=${TMP_FILES[$ith_tmp]}
       if [ -f $tmp ]; then
         rm -f $tmp
-        log DEBUG "  $tmp removed"
+        log DEBUG "  $tmp removed (${TMP_VARS[$ith_tmp]})"
        else
-        log DEBUG "  $tmp skipped"
+        log DEBUG "  $tmp skipped (${TMP_VARS[$ith_tmp]})"
        fi
     done
     log DEBUG done

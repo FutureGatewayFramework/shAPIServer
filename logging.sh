@@ -23,7 +23,7 @@ LOG_LEVELS=(
   "DEBUG"
 )
 
-LOG_LEVEL=DEBUG
+LOG_LEVEL=INFO
 LOG_FILE=logging.log
 LOG_ROTATE=1
 LOG_ROTATE_SIZE=$((512*1024*1204))
@@ -104,3 +104,6 @@ log() {
 # Initialization, uses script argument to overload log file name
 [ "$1" != "" ] &&\
   LOG_OUTPUT[0]=$1
+[ "$2" != "" ] &&\
+  LOG_LEVEL=$2
+

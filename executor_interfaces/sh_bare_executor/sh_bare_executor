@@ -11,7 +11,8 @@
 
 # logging import and customisation
 LOG_FILE=sh_bare_executor.log
-. logging.sh $LOG_FILE
+LOG_LEVEL=DEBUG
+. logging.sh $LOG_FILE $LOG_LEVEL
 
 # Check for compatibility issues before start the server is also may produce
 # several aliases used by next includes (do not move this line)
@@ -72,7 +73,7 @@ get_queue_record() {
   exec_sql $QUERY > $QRES_SETSTATUS
   [ $? -ne 0 ] &&\
     log ERROR "Unable to get queue record for task_id: '"${TID}"': '"$(cat $QRES_SETSTATUS)"'" &&\
-    rm_temp QRES_SETSTATUS &&\
+    rm_temp QUERY QRES_SETSTATUS &&\
     exit 1
   # Retrieve queue record values
   task_id=$TID
@@ -154,9 +155,143 @@ update_queue_record() {
   exec_sql $QUERY > $QRES_UPDATEQREC
   [ $? -ne 0 ] &&\
     log ERROR "Unable to update queue record for task_id: '"${TID}"': '"$(cat $QRES_UPDATEQREC)"'" &&\
-    rm_temp QRES_UPDATEQREC &&\
-    echo exit 1
+    rm_temp QUERY QRES_UPDATEQREC &&\
+    exit 1
   rm_temp QUERY QRES_UPDATEQREC
+}
+
+# Inesert a file entry for the given task
+insert_task_file() {
+  TASK_FILE_ARG=$1
+  TASK_FILE_TASKID=$2
+  TASK_FILE_PATH=$3
+  get_temp INSQUERY INSTASKRES
+  prepare_sql $INSQUERY\
+              queries/insert_task_file.sql\
+              $TASK_FILE_TASKID\
+              $TASK_FILE_TASKID\
+              $TASK_FILE_ARG\
+              $TASK_FILE_PATH
+  exec_sql $INSQUERY > $INSTASKRES
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to insert task file: '"$TASK_FILE_ARG"' for task_id: '"${TID}"': '"$(cat $INSTASKRES)"'" &&\
+    rm_temp INSQUERY INSTASKRES &&\
+    exit 1
+  rm_temp INSQUERY INSTASKRES
+}
+
+# Update file entry for the given task
+update_task_file() {
+  TASK_FILE_ARG=$1
+  TASK_FILE_TASKID=$2
+  TASK_FILE_PATH=$3
+  log DEBUG "TASK_FILE_PATH: $TASK_FILE_PATH"
+  get_temp UPDQUERY UPDTASKRES
+  prepare_sql $UPDQUERY\
+              queries/update_task_file.sql\
+              $TASK_FILE_PATH\
+              $TASK_FILE_TASKID\
+              $TASK_FILE_ARG
+  exec_sql $UPDQUERY > $UPDTASKRES
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to update task file: '"$TASK_FILE_ARG"' for task_id: '"${TID}"': '"$(cat $UPDTASKRES)"'" &&\
+    rm_temp UPDQUERY UPDTASKRES &&\
+    exit 1
+  rm_temp UPDQUERY UPDTASKRES
+}
+
+# Insert or update a task file entry
+insert_or_update_task_file() {
+  TASK_FILE=$1
+  TASK_FILE_PATH=${action_info}/$TASK_FILE
+  [ ! -f "${action_info_path}/${TASK_FILE}" ] &&\
+    log ERROR "Unable to update file '"${TASK_FILE_PATH}", the file is missing" &&\
+    return 1
+  log DEBUG "Inserting or updating task file: '"$TASK_FILE_PATH"'"
+  get_temp QUERY TASKFILECOUNTRES
+  prepare_sql QUERY\
+              queries/task_file_count.sql\
+              $TID\
+              $TASK_FILE
+  exec_sql $QUERY > $TASKFILECOUNTRES
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to get info for task file: '"$TASK_FILE"' for task_id: '"${TID}"': '"$(cat $TASKFILECOUNTRES)"'" &&\
+    rm_temp QUERY TASKFILECOUNTRES &&\
+    exit 1
+  # Get file count value
+  FILECOUNT=$(cat $TASKFILECOUNTRES)
+  rm_temp QUERY TASKFILECOUNTRES
+  if [ $FILECOUNT -eq 0 ]; then
+    # Insert task record
+    log DEBUG "Inserting file: '"$TASK_FILE"' for task_id: '"$TID"'"
+    insert_task_file "$TASK_FILE" "$TID" "$action_info"
+  else 
+    log DEBUG "Updating file: '"$TASK_FILE"' for task_id: '"$TID"'"
+    update_task_file "$TASK_FILE" "$TID" "$action_info"
+  fi
+}
+
+# Retrieve a list of registered task files
+process_task_files() {
+  log DEBUG Retrieving task files
+  get_temp TFILESQ TASKFILESRES
+  prepare_sql TFILESQ\
+              queries/get_task_files.sql\
+              $TID
+  exec_sql $TFILESQ > $TASKFILESRES
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to get info for task file: '"$TASK_FILE"' for task_id: '"${TID}"': '"$(cat $TASKFILESRES)"'" &&\
+    rm_temp TFILESQUERY TASKFILESRES &&\
+    exit 1
+  if [ -s $TASKFILESRES ]; then
+    log DEBUG Updating output files for task: $TID
+    while read task_file; do
+      task_file_id=$(echo $task_file | awk '{ print $1 }')
+      task_file_name=$(echo $task_file | awk '{ print $2 }')
+      task_file_path=$(echo $task_file | awk '{ print $3 }')
+      [ "$task_file_name" = "$SHBE_STDOUT" -o\
+        "$task_file_name" = "$SHBE_STDERR" ] &&\
+        continue 
+      log DEBUG "\toutput file id: "$task_file_id" name: '"$task_file_name"' path: '"$task_file_path"'"
+      insert_or_update_task_file $task_file_name 
+    done < $TASKFILESRES
+  else
+    log DEBUG No files to update for task: $TID
+  fi  
+  rm_temp TFILESQ TASKFILESRES
+}
+
+# Update task status in task table
+update_task_status() {
+  log DEBUG Updating task status
+  get_temp UPDATETASKQUERY UPDATETASKRES
+  prepare_sql UPDATETASKQUERY\
+              queries/update_task.sql\
+              $status\
+              $TID
+  exec_sql $UPDATETASKQUERY > $UPDATETASKRES
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable update task having id: '"${TID}"': "$(cat $UPDATETASKRES)"'" &&\
+    rm_temp UPDATETASKQUERY UPDATETASKRES &&\
+    exit 1
+  rm_temp UPDATETASKQUERY UPDATETASKRES
+}
+
+# Finalize task information after its execution
+finalize_task() {
+  # Insert/Update error/output files if necessary
+  HAS_OUT=$(echo $SHBE_STDOUT | grep "^\." | wc -l)
+  [ $HAS_OUT -eq 0 ] &&\
+    insert_or_update_task_file $SHBE_STDOUT ||\
+    log DEBUG No output file specified
+  HAS_ERR=$(echo $SHBE_STDOUT | grep "^\." | wc -l)
+  [ $HAS_ERR -eq 0 ] &&\
+    insert_or_update_task_file $SHBE_STDERR ||\
+    log DEBUG No error file specified 
+  # Update paths in task_output_file table if necessary
+  process_task_files
+  # Set task status
+  update_task_status
 }
 
 #
@@ -226,10 +361,14 @@ case $action in
                     grep -i "^stdout" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
+  [ "$SHBE_STDOUT" = "" ] &&\
+    SHBE_STDOUT=.stdout
   SHBE_STDERR=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^stderr" |\
                     awk -F'=' '{ print $2 }' |\
                     xargs echo)
+  [ "$SHBE_STDERR" = "" ] &&\
+    SHBE_STDERR=.stderr
   # Output files are in the form (f1, f2, ... fn)
   SHBE_OUTFILES_VAL=$(cat $action_info_path"/"$job_desc |\
                     grep -i "^output_files" |\
@@ -247,10 +386,10 @@ case $action in
   echo "start_ts="$(ts) >> $BARE_EXE_INFO
   cd $action_info_path
   $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
+  SHBE_PID=$!
   cd - >/dev/null
   status="RUNNING"
   target_status="RUNNING"
-  SHBE_PID=$!
   target_id=$SHBE_PID
   echo "task_id=${SHBE_PID}" >> $BARE_EXE_INFO
   update_queue_record $task_id
@@ -259,11 +398,13 @@ case $action in
   echo "end_ts="$(ts) >> $BARE_EXE_INFO
   SHBE_RET=$?
   echo "return_code=${SHBE_RET}" >> $BARE_EXE_INFO
+  log DEBUG "Exit code: $SHBE_RET"
   [ $SHBE_RET -eq 0 ] &&\
     status="DONE" &&\
     target_status="DONE" ||\
     (status="ABORTED" &&\
     target_status="ABORTED";)
+  finalize_task
   ;;
   "STATUS")
   log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"

@@ -10,7 +10,7 @@ echo "  ARG3: "$3
 echo "Working directory: "$(pwd)
 echo "Home directory: "$HOME
 echo "Sleeping for a while (30 secs.) ..."
-sleep 30
+sleep 3
 echo "Producing output file: test_output.txt"
 base64 /dev/urandom | head -c 1024 >test_output.txt
 echo "Output file md5: "$(md5sum test.jd | awk '{ print $1 }')
