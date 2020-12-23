@@ -84,9 +84,11 @@ get_tasks() {
   get_temp QUERY QRES_GET
   prepare_sql $QUERY\
               queries/get_tasks.sql\
-              $$
+              SHAS_${BOOK_ID}\
+              sh_bare_executor\
               $(min $TASKS_PER_LOOP\
                     $((MAX_ACTIVE_TASKS-NUM_ACTIVE_TASKS)))\
+  log debug "query: $QUERY"
   exec_sql $QUERY > $QRES_GET
   [ $? -ne 0 ] &&\
     log ERROR "Unable to get queue records: '"$(cat $QRES_GET)"'" &&\
@@ -109,7 +111,7 @@ log INFO "Log file in '"$LOG_FILE"'"
 instance_uuid INSTANCE_UUID
 log INFO "Instance id: $INSTANCE_UUID"
 # Short UUID is used to book queue records that will be owned by this instance
-SH_UUID=${INSTANCE_UUID: -10}
+SH_UUID=${INSTANCE_UUID: -12}
 
 # Register or check service configuration
 register_and_check_config
@@ -124,10 +126,11 @@ while [ -f $LOCK_FILE ]; do
   NUM_ACTIVE_TASKS=$(get_active_tasks $SH_UUID)
   log DEBUG "Active tasks: $NUM_ACTIVE_TASKS having booking id: 'SHAS_"$SH_UUID"'"
   book_tasks $SH_UUID
-  #get_tasks
-  #for t in ${QUEUE_TASKS[@]}; do
-  #  sh_bare_executor $t &
-  #done
+  get_tasks $SH_UUID
+  log DEBUG "Got ${#QUEUE_TASKS[@]} booked tasks"
+  for t in ${QUEUE_TASKS[@]}; do
+    executor_interfaces/sh_bare_executor/sh_bare_executor $t &
+  done
   # Process extracted tasks with corresponding EIs
   # ...
   # Wait before the next loop

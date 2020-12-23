@@ -1,11 +1,9 @@
-begin
-  select
-    task_id, 
-  from as_queue
-  where status = 'SHASD_BOOKED'
-    and target_id = %s
-  order by last_change asc
+select
+  task_id 
+from as_queue
+where status = %s 
+  and target = %s
+order by last_change asc
 limit %s;
-end;
 
 

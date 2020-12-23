@@ -39,6 +39,7 @@ int_handler() {
   log WARN "User interruption detected"
   status="ABORTED"
   target_status="INTERRUPTED"
+  exit 0
 }
 trap int_handler INT KILL
 
