@@ -144,6 +144,16 @@ ts() {
   printf $(date +%Y%m%d%H%M%S.%4N)
 }
 
+# min function for numeric values
+min() {
+  [ $1 -lt $2 ] && printf $1 || printf $2
+}
+
+# max function for numeric values
+max() {
+  [ $1 -gt $2 ] && printf $1 || printf $2
+}
+
 #
 # Initializations
 #

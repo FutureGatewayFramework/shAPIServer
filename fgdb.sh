@@ -25,9 +25,14 @@ exec_sql() {
     $MYSQL_CMD_ < $1 2>$SQL_ERR >$SQL_RES||\
     eval "$MYSQL_CMD_ \"-e ${@}\" 2>$SQL_ERR >$SQL_RES"
   SQL_XCD=$?
-  [ $SQL_XCD -eq 0 ] &&\
-    cat $SQL_RES ||\
+  if [ $SQL_XCD -eq 0 ]; then
+    cat $SQL_RES
+  else
     cat $SQL_ERR
+    [ -f "$1" ] &&\
+      log DEBUG "exec_sql query: '"$(cat $1)"'" ||\
+      log DEBUG "exec_sql query: '"$(echo ${@})"'"
+  fi
   rm_temp SQL_ERR SQL_RES
   return $SQL_XCD
 }

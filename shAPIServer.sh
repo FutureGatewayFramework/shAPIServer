@@ -30,6 +30,7 @@ int_handler() {
   [ -f $LOCK_FILE ] &&\
     log DEBUG "Removing lock file: '"$LOCK_FILE"'" &&\
     rm -f $LOCK_FILE
+  exit 0
 }
 exit_handler() {
   log INFO "API Server daemon terminated"
@@ -43,26 +44,38 @@ trap int_handler INT
 trap exit_handler EXIT
 trap error_handler ERR
 
-# Starting-up
-log INFO "Starting shAPIServer daemon, lock file in '"$LOCK_FILE"'"
-log INFO "Log file in '"$LOG_FILE"'"
+# Retrieve the number of actie tasks of this APIServer instance
+get_active_tasks() {
+  INSTANCE_ID=$1
+  get_temp QUERY QRES
+  prepare_sql $QUERY\
+              queries/get_active_tasks.sql\
+              SHAS_${INSTANCE_ID}
+  exec_sql $QUERY > $QRES
+  [ $? -ne 0 ] &&\
+    log ERROR "Unable to get the number of ative queue elements: '"$(cat $QRES_BOOK)"'" &&\
+    rm_temp QUERY QRES &&\
+    exit 1
+  cat $QRES
+  rm_temp QUERY QRES
+}
 
 # Book a given set of queue records
 book_tasks() {
   BOOK_ID=$1
-  get_temp QUERY QRES_BOOK
-  prepare_sql $QUERY\
+  get_temp QBOOK QRES_BOOK
+  prepare_sql $QBOOK\
               queries/book_tasks.sql\
               sh_bare_executor\
-              10\
+              $(min $TASKS_PER_LOOP\
+                    $((MAX_ACTIVE_TASKS-NUM_ACTIVE_TASKS)))\
               SHAS_${BOOK_ID}
-  log debug "query: $(cat $QUERY)"
-  exec_sql $QUERY > $QRES_BOOK
+  exec_sql $QBOOK > $QRES_BOOK
   [ $? -ne 0 ] &&\
     log ERROR "Unable to book queue records: '"$(cat $QRES_BOOK)"'" &&\
-    rm_temp QUERY QRES_BOOK &&\
+    rm_temp QBOOK QRES_BOOK &&\
     exit 1
-  rm_temp QUERY QRES_BOOK
+  rm_temp QBOOK QRES_BOOK
 }
 
 # Get booked tasks
@@ -72,7 +85,8 @@ get_tasks() {
   prepare_sql $QUERY\
               queries/get_tasks.sql\
               $$
-              10
+              $(min $TASKS_PER_LOOP\
+                    $((MAX_ACTIVE_TASKS-NUM_ACTIVE_TASKS)))\
   exec_sql $QUERY > $QRES_GET
   [ $? -ne 0 ] &&\
     log ERROR "Unable to get queue records: '"$(cat $QRES_GET)"'" &&\
@@ -82,9 +96,9 @@ get_tasks() {
   rm_temp QUERY QRES_GET  
 }
 
-#
-# shAPIServer main loop
-#
+# Starting-up
+log INFO "Starting shAPIServer daemon, lock file in '"$LOCK_FILE"'"
+log INFO "Log file in '"$LOG_FILE"'"
 
 # Generate lock file
 [ ! -f $LOCK_FILE ] &&\
@@ -94,14 +108,22 @@ get_tasks() {
 # Generate/read instance UUID
 instance_uuid INSTANCE_UUID
 log INFO "Instance id: $INSTANCE_UUID"
+# Short UUID is used to book queue records that will be owned by this instance
 SH_UUID=${INSTANCE_UUID: -10}
 
 # Register or check service configuration
 register_and_check_config
+
+#
+# shAPIServer main loop
+#
+
 while [ -f $LOCK_FILE ]; do
   log INFO "Polling"
   # Extract tasks from QUEUE
-  #book_tasks $SH_UUID
+  NUM_ACTIVE_TASKS=$(get_active_tasks $SH_UUID)
+  log DEBUG "Active tasks: $NUM_ACTIVE_TASKS having booking id: 'SHAS_"$SH_UUID"'"
+  book_tasks $SH_UUID
   #get_tasks
   #for t in ${QUEUE_TASKS[@]}; do
   #  sh_bare_executor $t &

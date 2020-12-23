@@ -9,4 +9,5 @@ begin;
    limit %s) as q using (task_id)
   set status = %s,
       last_change = now();
-end;
+commit;
+
