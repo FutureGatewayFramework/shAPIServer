@@ -63,10 +63,12 @@ get_active_tasks() {
 # Book a given set of queue records
 book_tasks() {
   BOOK_ID=$1
+  shift 1
+  EIS=$@ 
   get_temp QBOOK QRES_BOOK
   prepare_sql $QBOOK\
               queries/book_tasks.sql\
-              sh_bare_executor\
+              "${EIS:1:${#EIS}-2}"\
               $(min $TASKS_PER_LOOP\
                     $((MAX_ACTIVE_TASKS-NUM_ACTIVE_TASKS)))\
               SHAS_${BOOK_ID}
@@ -85,7 +87,6 @@ get_tasks() {
   prepare_sql $QUERY\
               queries/get_tasks.sql\
               SHAS_${BOOK_ID}\
-              sh_bare_executor\
               $(min $TASKS_PER_LOOP\
                     $((MAX_ACTIVE_TASKS-NUM_ACTIVE_TASKS)))\
   log debug "query: $QUERY"
@@ -94,7 +95,11 @@ get_tasks() {
     log ERROR "Unable to get queue records: '"$(cat $QRES_GET)"'" &&\
     rm_temp QUERY QRES_GET &&\
     exit 1
-  QUEUE_TASKS=($(cat $QRES_GET))
+  while read tr; do
+    task_id=$(echo $tr | awk '{print $1}')
+    target_executor=$(echo $tr | awk '{print $2}')
+    QUEUE_TASKS+=("${task_id}|${target_executor}")
+  done < $QRES_GET
   rm_temp QUERY QRES_GET  
 }
 
@@ -116,6 +121,10 @@ SH_UUID=${INSTANCE_UUID: -12}
 # Register or check service configuration
 register_and_check_config
 
+# Get a comma separated string of supported executor interfaces
+SH_EXECUTOR_INTERFACES=$(/bin/ls -1 executor_interfaces/ | xargs printf "'%s', " | sed s/,.$//)
+log INFO "Supported executor interfaces: ("$SH_EXECUTOR_INTERFACES")"
+
 #
 # shAPIServer main loop
 #
@@ -125,11 +134,14 @@ while [ -f $LOCK_FILE ]; do
   # Extract tasks from QUEUE
   NUM_ACTIVE_TASKS=$(get_active_tasks $SH_UUID)
   log DEBUG "Active tasks: $NUM_ACTIVE_TASKS having booking id: 'SHAS_"$SH_UUID"'"
-  book_tasks $SH_UUID
+  book_tasks $SH_UUID $SH_EXECUTOR_INTERFACES
   get_tasks $SH_UUID
-  log DEBUG "Got ${#QUEUE_TASKS[@]} booked tasks"
-  for t in ${QUEUE_TASKS[@]}; do
-    executor_interfaces/sh_bare_executor/sh_bare_executor $t &
+  log DEBUG "Got ${#QUEUE_TASKS[@]} booked tasks: '"${QUEUE_TASKS[@]}"'"
+  for tr in ${QUEUE_TASKS[@]}; do
+    task_id=$(echo $tr | awk -F'|' '{print $1}')
+    target_executor=$(echo $tr | awk -F'|' '{print $2}')
+    log DEBUG "Executing task_id: '"$task_id"' with executor: '"$target_executor"'"
+    executor_interfaces/${target_executor}/${target_executor} $task_id &
   done
   # Process extracted tasks with corresponding EIs
   # ...

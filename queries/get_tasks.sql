@@ -1,8 +1,8 @@
 select
-  task_id 
+  task_id,
+  target 
 from as_queue
 where status = %s 
-  and target = %s
 order by last_change asc
 limit %s;
 
