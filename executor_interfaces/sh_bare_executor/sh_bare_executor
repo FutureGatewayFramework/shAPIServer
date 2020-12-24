@@ -332,6 +332,10 @@ case $action in
   "SUBMIT")
   # SUBMIT json file
   SUBMIT_JSON=${action_info_path}/${task_id}.json
+  [ ! -f $SUBMIT_JSON ] &&\
+    status="ABORTED" &&\
+    log ERROR "No task description file: '"$SUBMIT_JSON"', found" &&\
+    exit 1
   # Job description parameter and file presence
   job_desc=$(cat $SUBMIT_JSON |\
              jq '.application.parameters[]|select(.param_name=="jobdesc")' |\
