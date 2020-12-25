@@ -5,6 +5,11 @@
 # Bare executor is the simplest kind of executors for APIServers. This kind of
 # executor interface just execute received commands in APIServer space and
 # jobs are directly executed in 'target_info' directory.
+#
+# Infrastructure parameters
+#
+# user: <any value, unused>
+#
 
 # tools functions
 . tools.sh
@@ -168,6 +173,7 @@ case $action in
   log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
   ;;
   "KILL")
+  log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
   ;;
   *)
   log ERROR "Unknown action: '"$action"' for task_id: '"$task_id"'"

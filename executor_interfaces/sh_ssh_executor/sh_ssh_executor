@@ -5,7 +5,16 @@
 # SSH executor is the most useful kind of executors for APIServers. This kind 
 # of executor interface it just executes given commands to the specified 
 # remote host.
-
+#
+# Infrastructure parameters
+#
+# user: username of the remote user
+# host: SSH remote host address
+# password: SSH username' password
+# sshkey: SSH private key path used to passwordlessy connect remote host
+#
+# One of the two parameters: password, sshkey has to be specified sshkey path
+# has the priority
 
 # tools functions
 . tools.sh
@@ -18,6 +27,11 @@ LOG_LEVEL=DEBUG
 # Check for compatibility issues before start the server is also may produce
 # several aliases used by next includes (do not move this line)
 check_compatibility
+# EI Specific compatibility check
+EXPECT=$(which expect)
+[ "$EXPECT" = "" ] &&\
+  log ERROR "Executor interface $(basename $0), requires expect" &&\
+  exit 1
 
 # database functions
 . fgdb.sh
@@ -28,8 +42,8 @@ check_compatibility
 # APIServer configurations, see shAPIerver.conf
 . config.sh
 
-# Queue task_id
-task_id=$1
+# queue functions
+.  queue.sh
 
 #
 # Handlers
@@ -47,7 +61,7 @@ trap int_handler INT KILL
 # Exit 
 exit_handler() {
   log INFO "Terminating bare execution on task_id: $task_id"
-  update_queue_record $task_id
+  update_queue_record $task_id || exit 1
   cleanup_temp
 }
 trap exit_handler EXIT
@@ -72,18 +86,15 @@ trap error_handler ERR
 # Queue task_id
 task_id=$1
 verify_queued_task
+[ $? -ne 0 ] &&\
+  log debug "Task '"${task_id}"' verification failed" &&\
+  exit 1;
 
 # Retrieve queue record
 case $action in
   "SUBMIT")
-  # SUBMIT json file
-  SUBMIT_JSON=${action_info_path}/${task_id}.json
-  [ ! -f $SUBMIT_JSON ] &&\
-    status="ABORTED" &&\
-    log ERROR "No task description file: '"$SUBMIT_JSON"', found" &&\
-    exit 1
   # Job description parameter and file presence
-  job_desc=$(cat $SUBMIT_JSON |\
+  job_desc=$(cat $submit_json |\
              jq '.application.parameters[]|select(.param_name=="jobdesc")' |\
              jq -r .param_value)
   [ "${job_desc}" = "" ] &&\
@@ -95,7 +106,7 @@ case $action in
     log ERROR "No job description: '"$action_info_path"/"$job_desc"' available for task id: '"$task_id"' with action: '"$action"'" &&\
     exit 1
   # Task arguments
-  TASK_ARGS=($(cat $SUBMIT_JSON | jq .arguments[]; ))
+  TASK_ARGS=($(cat $submit_json | jq .arguments[]; ))
   # Go to the action_info_path
   BARE_EXE_INFO=$action_info_path/.sh_bare_executor
   touch $BARE_EXE_INFO
@@ -132,39 +143,110 @@ case $action in
   log DEBUG "\toutput=$SHBE_STDOUT"
   log DEBUG "\terror=$SHBE_STDERR"
   log DEBUG "\toutput_files=$SHBE_OUTFILES_VAL"
+  # Infrastructure parameters
+  get_temp INFRA_PARAMS
+  $(infra_parameters > $INFRA_PARAMS) ||\
+    (log ERROR "Unable to get infrastructure parameters" &&\
+    STATUS="ABORTED" &&\
+    exit 1;)
+  infra_host=$(cat $INFRA_PARAMS | grep ^host | awk -F'\t' '{ print $2 }')
+  [ "$infra_host" = "" ] &&\
+    log ERROR "Missing SSH host address for task: '"${task_id}"'" &&\
+    exit 1
+  infra_user=$(cat $INFRA_PARAMS | grep ^user | awk -F'\t' '{ print $2 }')
+  [ "$infra_user" = "" ] &&\
+    log ERROR "Missing SSH user name for task: '"${task_id}"'" &&\
+    exit 1
+  infra_password=$(cat $INFRA_PARAMS | grep ^password | awk -F'\t' '{ print $2 }')
+  infra_sshkey=$(cat $INFRA_PARAMS | grep ^usesshkeyr | awk -F'\t' '{ print $2 }')
+  if  [ "$infra_password" = "" -a\
+        "$infra_sshkey" = "" ]; then
+    [ "$infra_password" = "" ] &&\
+      log ERROR "Missing SSH password for task: '"${task_id}"'" &&\
+    [ "$infra_sshkey" = "" ] &&\
+      log ERROR "Missing SSH key for task: '"${task_id}"'" &&\
+    exit 1
+  fi
+  rm_temp INFRA_PARAMS
   # Execute the requested job
-  log DEBUG "Executing: $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT"
-  echo "start_ts="$(ts) >> $BARE_EXE_INFO
   cd $action_info_path
-  $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
-  SHBE_PID=$!
-  cd - >/dev/null
-  status="RUNNING"
-  target_status="RUNNING"
-  target_id=$SHBE_PID
-  echo "task_id=${SHBE_PID}" >> $BARE_EXE_INFO
-  update_queue_record $task_id || exit 1 
-  log DEBUG "Waiting for execution completion"
-  wait $SHBE_PID
-  echo "end_ts="$(ts) >> $BARE_EXE_INFO
-  SHBE_RET=$?
-  echo "return_code=${SHBE_RET}" >> $BARE_EXE_INFO
-  log DEBUG "Exit code: $SHBE_RET"
-  [ $SHBE_RET -eq 0 ] &&\
+  # Prepare the sandbox archive
+  get_temp IOSANDBOX
+  IOSANDBOX_FNAME=$(basename $IOSANDBOX)
+  tar cvfz $IOSANDBOX .
+  if [ "$infra_sshkey" = "" ]; then
+    log DEBUG "Starting SSH execution using keyfile path: '"$infra_sshkey"'"
+    # Create remote sandbox dir
+    REMOTE_IOSANDBOX=$(ssh -i $infra_sshkey $infra_user@$infra_host "mktemp")
+    # Transfer the sandbox
+    log DEBUG "Transger IOSANDBOX('"${IOSANDBOX}"->"${$REMOTE_IOSANDBOX/$IOSANDBOX_FNAME}"'"
+    scp -i $infra_sshkey $IOSANDBOX $infra_user@$infra_host:$REMOTE_IOSANDBOX/$IOSANDBOX_FNAME
+    # Create remote execution script
+    EXECUTOR_PID=$$
+    cat >sh_ssh_executor_script.sh <<EOF
+#!/bin/bash
+# Script automatically generated by sh_ssh_executor
+cd ${REMOTE_IOSANDBOX}
+tar xvfz ${IOSANDBOX_FNAME}
+$SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
+SHBE_PID=$!
+echo "task_id=${SHBE_PID}" >> ${BARE_EXE_INFO}
+echo "executor_pid=${EXECUTOR_PID}" >> ${BARE_EXE_INFO}
+wait $SHBE_PID
+echo "end_ts="$(ts) >> $BARE_EXE_INFO
+SHBE_RET=$?
+echo "return_code=${SHBE_RET}" >> $BARE_EXE_INFO
+cd - >/dev/null
+EOF
+    # Transfer the sandbox
+    scp -i $infra_sshkey sh_ssh_executor_script.sh $infra_user@$infra_host:$REMOTE_IOSANDBOX/sh_ssh_executor_script.sh
+    # Execute the command
+    log DEBUG "Executing remote ssh command: \"$SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT\""
+    ssh -i $infra_sshkey $infra_user@$infra_host "\
+      cd $REMOTE_IOSANDBOX &&\
+      chmod +x sh_ssh_executor_script.sh &&\
+      ./sh_ssh_executor_script.sh &"
+    # Retrieve the PID
+    status="RUNNING"
+    target_status="RUNNING"
+    update_queue_record $task_id || exit 1
+    # Wait execution completion
+    log DEBUG "Waiting for execution completion"
+    while true; do
+      scp -i $infra_user@$infra_host:$BARE_EXE_INFO $BARE_EXE_INFO
+      end_ts=$(cat $BARE_EXE_INFO | grep ^end_ts | awk -F'=' '{ print $2 }')
+      return_code=$(cat $BARE_EXE_INFO | grep ^return_code | awk -F'=' '{ print $2 }')
+      if [ "$end_ts" -ne 0 -a\
+           "$return_code" != "" ] &&\
+        break ||\
+        sleep 5
+    done
+    # Transfer
+    scp -rf $infra_user@$infra_host:$REMOTE_IOSANDBOX/ .
+    ssh -i $infra_sshkey $infra_user@$infra_host "rm -rf $REMOTE_IOSANDBOX"
+  else
+    # Transfer the sandbox
+    log DEBUG "Executing using password not yet implemented"
+    status="ABORTED"
+    target_status="ABORTED"
+    exit 1
+  fi
+  rm_temp IOSANDBOX
+  [ $return_code -eq 0 ] &&\
     status="DONE" &&\
     target_status="DONE" ||\
     (status="ABORTED" &&\
     target_status="ABORTED";)
-  finalize_task
+  finalize_task || exit 1
   ;;
   "STATUS")
   log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
   ;;
   "KILL")
+  log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
   ;;
   *)
   log ERROR "Unknown action: '"$action"' for task_id: '"$task_id"'"
   exit 1
   ;;
 esac
-
