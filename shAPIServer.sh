@@ -24,6 +24,9 @@ check_compatibility
 # APIServer configurations, see shAPIerver.conf
 . config.sh
 
+# queue functions
+. queue.sh
+
 # Interruption  handlers
 int_handler() {
   log INFO "User interruption detected"
@@ -128,9 +131,8 @@ log INFO "Supported executor interfaces: ("$SH_EXECUTOR_INTERFACES")"
 #
 # shAPIServer main loop
 #
-
+log INFO "Polling"
 while [ -f $LOCK_FILE ]; do
-  log INFO "Polling"
   # Extract tasks from QUEUE
   NUM_ACTIVE_TASKS=$(get_active_tasks $SH_UUID)
   log DEBUG "Active tasks: $NUM_ACTIVE_TASKS having booking id: 'SHAS_"$SH_UUID"'"
@@ -140,6 +142,15 @@ while [ -f $LOCK_FILE ]; do
   for tr in ${QUEUE_TASKS[@]}; do
     task_id=$(echo $tr | awk -F'|' '{print $1}')
     target_executor=$(echo $tr | awk -F'|' '{print $2}')
+    if [ "$target_executor" = "" ]; then
+      # Infrastructure based executor interface
+      NULL=$(verify_queued_task) &&\
+        target_executor=$(infra_executor_interface) ||\
+        log ERROR "Task validation error for task having id: '"$task_id"'"
+      [ "$target_executor" = "" ] &&\
+        log ERROR "No application level target executor for: '"$task_id"', skipping" &&\
+        continue
+    fi
     log DEBUG "Executing task_id: '"$task_id"' with executor: '"$target_executor"'"
     executor_interfaces/${target_executor}/${target_executor} $task_id &
   done

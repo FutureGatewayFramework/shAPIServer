@@ -1,16 +1,17 @@
 #!/bin/bash
 #
-# Shell based bare_executor
+# Shell based ssh_executor
 #
-# Bare executor is the simplest kind of executors for APIServers. This kind of
-# executor interface just execute received commands in APIServer space and
-# jobs are directly executed in 'target_info' directory.
+# SSH executor is the most useful kind of executors for APIServers. This kind 
+# of executor interface it just executes given commands to the specified 
+# remote host.
+
 
 # tools functions
 . tools.sh
 
 # logging import and customisation
-LOG_FILE=sh_bare_executor.log
+LOG_FILE=sh_ssh_executor.log
 LOG_LEVEL=DEBUG
 . logging.sh $LOG_FILE $LOG_LEVEL
 
@@ -27,8 +28,8 @@ check_compatibility
 # APIServer configurations, see shAPIerver.conf
 . config.sh
 
-# queue functions
-.  queue.sh
+# Queue task_id
+task_id=$1
 
 #
 # Handlers
@@ -46,7 +47,7 @@ trap int_handler INT KILL
 # Exit 
 exit_handler() {
   log INFO "Terminating bare execution on task_id: $task_id"
-  update_queue_record $task_id || exit 1
+  update_queue_record $task_id
   cleanup_temp
 }
 trap exit_handler EXIT
@@ -65,21 +66,24 @@ trap error_handler ERR
 #
 
 #
-# SH Bare Executor Interface code
+# SH SSH Executor Interface code
 #
 
 # Queue task_id
 task_id=$1
 verify_queued_task
-[ $? -ne 0 ] &&\
-  log debug "Task '"${task_id}"' verification failed" &&\
-  exit 1;
 
 # Retrieve queue record
 case $action in
   "SUBMIT")
+  # SUBMIT json file
+  SUBMIT_JSON=${action_info_path}/${task_id}.json
+  [ ! -f $SUBMIT_JSON ] &&\
+    status="ABORTED" &&\
+    log ERROR "No task description file: '"$SUBMIT_JSON"', found" &&\
+    exit 1
   # Job description parameter and file presence
-  job_desc=$(cat $submit_json |\
+  job_desc=$(cat $SUBMIT_JSON |\
              jq '.application.parameters[]|select(.param_name=="jobdesc")' |\
              jq -r .param_value)
   [ "${job_desc}" = "" ] &&\
@@ -91,7 +95,7 @@ case $action in
     log ERROR "No job description: '"$action_info_path"/"$job_desc"' available for task id: '"$task_id"' with action: '"$action"'" &&\
     exit 1
   # Task arguments
-  TASK_ARGS=($(cat $submit_json | jq .arguments[]; ))
+  TASK_ARGS=($(cat $SUBMIT_JSON | jq .arguments[]; ))
   # Go to the action_info_path
   BARE_EXE_INFO=$action_info_path/.sh_bare_executor
   touch $BARE_EXE_INFO
@@ -128,19 +132,8 @@ case $action in
   log DEBUG "\toutput=$SHBE_STDOUT"
   log DEBUG "\terror=$SHBE_STDERR"
   log DEBUG "\toutput_files=$SHBE_OUTFILES_VAL"
-  # Infrastructure parameters
-  get_temp INFRA_PARAMS
-  $(infra_parameters > $INFRA_PARAMS) ||\
-    (log ERROR "Unable to get infrastructure parameters" &&\
-    STATUS="ABORTED" &&\
-    exit 1;)
-  infra_user=$(cat $INFRA_PARAMS | grep ^user | awk -F'\t' '{ print $2 }')
-  [ "$infra_user" = "" ] &&\
-    infra_user=$(whoami) &&\
-    log WARN "Unable to determine the infrastructure username parameter, using default: '"$infra_user"'"
-  rm_temp INFRA_PARAMS
   # Execute the requested job
-  log DEBUG "Executing: \"$SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT\""
+  log DEBUG "Executing: $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT"
   echo "start_ts="$(ts) >> $BARE_EXE_INFO
   cd $action_info_path
   $SHBE_EXECUTABLE $SHBE_ARGUMENTS 2>$SHBE_STDERR >$SHBE_STDOUT &
@@ -150,7 +143,7 @@ case $action in
   target_status="RUNNING"
   target_id=$SHBE_PID
   echo "task_id=${SHBE_PID}" >> $BARE_EXE_INFO
-  update_queue_record $task_id || exit 1
+  update_queue_record $task_id || exit 1 
   log DEBUG "Waiting for execution completion"
   wait $SHBE_PID
   echo "end_ts="$(ts) >> $BARE_EXE_INFO
@@ -162,7 +155,7 @@ case $action in
     target_status="DONE" ||\
     (status="ABORTED" &&\
     target_status="ABORTED";)
-  finalize_task || exit 1
+  finalize_task
   ;;
   "STATUS")
   log DEBUG "Not yet implemented action: '"$action"' for task_id: '"$task_id"'"
