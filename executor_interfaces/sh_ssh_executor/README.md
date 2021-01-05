@@ -40,6 +40,7 @@ cd executor_interfaces/sh_ssh_executor
 python3 -m venv venv
 . venv/bin/activate
 pip install -r requirements.txt
+deactivate
 ```
 
 ## Test
