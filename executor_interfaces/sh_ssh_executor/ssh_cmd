@@ -1,0 +1,11 @@
+#!/bin/bash
+HOST=$1
+PORT=$2
+USER=$3
+PASS=$4
+PKEY=$5
+shift 5
+CMD=$@
+
+source ./venv/bin/activate &&\
+./ssh_cmd.py "$HOST" "$PORT" "$USER" "$PASS" "$PKEY" "$CMD"

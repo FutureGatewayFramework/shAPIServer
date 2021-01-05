@@ -158,8 +158,8 @@ case $action in
   update_queue_record $task_id || exit 1
   log DEBUG "Waiting for execution completion"
   wait $SHBE_PID
-  echo "end_ts="$(ts) >> $BARE_EXE_INFO
   SHBE_RET=$?
+  echo "end_ts="$(ts) >> $BARE_EXE_INFO
   echo "return_code=${SHBE_RET}" >> $BARE_EXE_INFO
   log DEBUG "Exit code: $SHBE_RET"
   [ $SHBE_RET -eq 0 ] &&\

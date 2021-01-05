@@ -1,0 +1,12 @@
+#!/bin/bash
+HOST=$1
+PORT=$2
+USER=$3
+PASS=$4
+PKEY=$5
+LFLP=$6
+TRDR=$7
+RFLP=$8
+
+source ./venv/bin/activate &&\
+./scp_cmd.py "$HOST" "$PORT" "$USER" "$PASS" "$PKEY" "$LFLP" "$TRDR" "$RFLP"

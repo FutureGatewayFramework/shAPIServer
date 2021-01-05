@@ -125,7 +125,12 @@ SH_UUID=${INSTANCE_UUID: -12}
 register_and_check_config
 
 # Get a comma separated string of supported executor interfaces
-SH_EXECUTOR_INTERFACES=$(/bin/ls -1 executor_interfaces/ | xargs printf "'%s', " | sed s/,.$//)
+# The 'sh_executor' is the default executor interface name supported by this
+# executor interface
+SH_EXECUTOR_INTERFACES=\
+  $(echo "sh_executor, $(/bin/ls -1 executor_interfaces |\
+                         xargs printf '%s, ')" |\
+                         sed s/,.$//)
 log INFO "Supported executor interfaces: ("$SH_EXECUTOR_INTERFACES")"
 
 #
@@ -142,7 +147,7 @@ while [ -f $LOCK_FILE ]; do
   for tr in ${QUEUE_TASKS[@]}; do
     task_id=$(echo $tr | awk -F'|' '{print $1}')
     target_executor=$(echo $tr | awk -F'|' '{print $2}')
-    if [ "$target_executor" = "" ]; then
+    if [ "$target_executor" = "sh_executor" ]; then
       # Infrastructure based executor interface
       NULL=$(verify_queued_task) &&\
         target_executor=$(infra_executor_interface) ||\
