@@ -2,3 +2,4 @@
 *.log
 mysql.cfg
 fgiosandbox
+venv
