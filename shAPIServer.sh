@@ -127,10 +127,8 @@ register_and_check_config
 # Get a comma separated string of supported executor interfaces
 # The 'sh_executor' is the default executor interface name supported by this
 # executor interface
-SH_EXECUTOR_INTERFACES=\
-  $(echo "sh_executor, $(/bin/ls -1 executor_interfaces |\
-                         xargs printf '%s, ')" |\
-                         sed s/,.$//)
+SH_DIR_EXECUTOR_INTERFACES=$(/bin/ls -1 executor_interfaces | xargs printf '%s, ')
+SH_EXECUTOR_INTERFACES=$(echo "sh_executor, $SH_DIR_EXECUTOR_INTERFACES" | sed s/,.$//)
 log INFO "Supported executor interfaces: ("$SH_EXECUTOR_INTERFACES")"
 
 #
